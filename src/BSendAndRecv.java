@@ -16,36 +16,37 @@ public class BSendAndRecv {
 
     public static void main(String[] args) throws MPIException {
 
+        int NB_ITEMS = 5;
         MPI.Init(args);
 
         Intracomm comm = MPI.COMM_WORLD;
         int me = comm.getRank();
         int nb = comm.getSize();
 
-        DoubleBuffer buffer = MPI.newDoubleBuffer(5);
+        DoubleBuffer buffer = MPI.newDoubleBuffer(NB_ITEMS);
 
         //Initialisation
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < NB_ITEMS; i++) {
             buffer.put(i, me);
         }
 
         // Print
-        System.out.println(me + " " + bufferToString(buffer, 5) + ".");
+        System.out.println(me + " " + bufferToString(buffer, NB_ITEMS) + ".");
         MPI.COMM_WORLD.barrier();
 
         if(me % 2 == 0) {
             // Nombre pair d'éléments
             if(me + 1 < nb) {
-                comm.bSend(buffer, 5, MPI.DOUBLE, me + 1, 1);
+                comm.bSend(buffer, NB_ITEMS, MPI.DOUBLE, me + 1, 1);
             }
         } else {
-            Status status = comm.recv(buffer, 5, MPI.DOUBLE, me - 1, 1);
+            Status status = comm.recv(buffer, NB_ITEMS, MPI.DOUBLE, me - 1, 1);
             int count = status.getCount(MPI.DOUBLE);
             int src = status.getSource();
             System.out.println(src + " -> " + me + ": received "+ count +" values");
         }
         MPI.COMM_WORLD.barrier();
-        System.out.println(me + " " + bufferToString(buffer, 5) + ".");
+        System.out.println(me + " " + bufferToString(buffer, NB_ITEMS) + ".");
 
         MPI.COMM_WORLD.barrier();
 
