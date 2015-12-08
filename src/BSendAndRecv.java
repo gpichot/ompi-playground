@@ -26,7 +26,7 @@ public class BSendAndRecv {
 
         //Initialisation
         for (int i = 0; i < 5; i++) {
-            buffer.put(i, me % 2);
+            buffer.put(i, me);
         }
 
         // Print
