@@ -3,8 +3,10 @@
 import mpi.*;
 
 import java.nio.CharBuffer;
+import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Map.Entry;
 import java.util.Random;
 
 
@@ -65,6 +67,14 @@ public class Master {
                 _comm.send(message, message.length(), MPI.CHAR, source, 0);
 
             }
+
+            CharBuffer message = CharBuffer.wrap(getEntireMapping().toCharArray());    
+            System.out.println("Global message sent from global_master : " + message.toString());
+            IntBuffer sizeMessage = IntBuffer.allocate(1);
+            sizeMessage.put(message.length());
+            _comm.bcast(sizeMessage, 1, MPI.INT, 0);
+            _comm.bcast(message, message.length(), MPI.CHAR, 0);
+
         } else {
             CharBuffer message = CharBuffer.wrap(buildUnitMessage().toCharArray());
             System.out.println(message);
@@ -74,7 +84,15 @@ public class Master {
             int length = status.getCount(MPI.CHAR);
             message = CharBuffer.allocate(length);
             _comm.recv(message, length, MPI.CHAR, 0, 0);
-            System.out.println("Message received from global_master : " + message.toString());
+            System.out.println("Message local received from global_master : " + message.toString());
+
+            IntBuffer sizeMessage = IntBuffer.allocate(1);
+            _comm.bcast(sizeMessage, 1, MPI.INT, 0);
+            length = sizeMessage.get(0);
+            System.out.println("Message global received from global_master : " + sizeMessage.get(0));
+            message = CharBuffer.allocate(length);
+            _comm.bcast(message, length, MPI.CHAR, 0);
+            System.out.println("Message global received from global_master : " + message.toString());
 
         }
 
@@ -103,6 +121,15 @@ public class Master {
                 _units.put(unit, new UnitAddress(rank, _counter));
                 message += " " + unit + ":" + _counter;
             }
+        }
+        return message;
+    }
+
+    public String getEntireMapping() {
+        String message = "";
+        for(Entry<String, UnitAddress> entry: _units.entrySet()) {
+            UnitAddress address = entry.getValue();
+            message += " " + entry.getKey() + "@" + address.Rank + ":" + address.Tag;
         }
         return message;
     }
