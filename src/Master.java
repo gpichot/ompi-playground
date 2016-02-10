@@ -105,13 +105,13 @@ public class Master {
             for(int i = 1; i < nb_masters; ++i) {
 
                 // Retrieves the size of the message and its source
-                Status status = _comm.probe(MPI.ANY_SOURCE, 0);
+                Status status = _comm.probe(MPI.ANY_SOURCE, DEFAULT_TAG);
                 int source = status.getSource();
                 int length = status.getCount(MPI.CHAR);
 
                 // Receives the message
                 CharBuffer message = CharBuffer.allocate(length);
-                _comm.recv(message, length, MPI.CHAR, source, 0);
+                _comm.recv(message, length, MPI.CHAR, source, DEFAULT_TAG);
                 System.out.println("Message received from " + source + " : " + message.toString());
 
                 // For each FMU attribute a new identifier
@@ -140,13 +140,13 @@ public class Master {
 
             // Waits for the global master to send the size of the mapping message 
             IntBuffer sizeMessage = IntBuffer.allocate(1);
-            _comm.bcast(sizeMessage, 1, MPI.INT, 0);
+            _comm.bcast(sizeMessage, 1, MPI.INT, GLOBAL_MASTER);
             int length = sizeMessage.get(0);
             System.out.println("Message global received from global_master : " + sizeMessage.get(0));
 
             // Then receives the whole mapping
             message = CharBuffer.allocate(length);
-            _comm.bcast(message, length, MPI.CHAR, 0);
+            _comm.bcast(message, length, MPI.CHAR, GLOBAL_MASTER);
             System.out.println("Message global received from global_master : " + message.toString());
 
         }
