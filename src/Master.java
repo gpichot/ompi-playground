@@ -1,5 +1,3 @@
-
-
 import mpi.*;
 
 import java.nio.CharBuffer;
@@ -12,84 +10,141 @@ import java.util.Random;
 
 public class Master {
 
+    public static final int GLOBAL_MASTER = 0;
+    public static final int DEFAULT_TAG = 0;
+
+    /**
+     * Local random number generator.
+     */
     private Random _gen = new Random();
 
-    class UnitAddress {
-        public int Rank;
-        public int Tag;
 
-        public UnitAddress(int rank, int tag) {
-            Rank = rank;
-            Tag = tag;
+    /**
+     * Stores a FMU Address (Host/Master Id + FMU Global Id)
+     *
+     */
+    class FMUAddress {
+
+        /**
+         * Master ID, unique identifier for the master (in MPI: rank).
+         */
+        public int masterId;
+
+        /**
+         * Global ID for the FMU (unique for the whole simulation).
+         */
+        public int fmuGlobalId;
+
+        public FMUAddress(int master_id, int fmu_global_id) {
+            masterId = master_id;
+            fmuGlobalId = fmu_global_id;
         }
+
     }
 
-    private int _rank;
+    /**
+     * Id for the master (unique, rank for MPI).
+     */
+    private int _id;
 
+    /**
+     * Communicator (MPI).
+     */
     private Intracomm _comm;
 
-    private ArrayList<String> _localUnits = new ArrayList<String>();
+    /**
+     * FMUs locals to the master (as strings).
+     */
+    private ArrayList<String> _localFMUs = new ArrayList<String>();
 
-    private HashMap<String, UnitAddress> _units = new HashMap<String, UnitAddress>();
 
+    /**
+     * Map of all the FMUs with their address (Master Id + FMU Id).
+     */
+    private HashMap<String, FMUAddress> _fmuMap = new HashMap<String, FMUAddress>();
+
+
+    /**
+     * Internal counter used to attribute a unique identifier to each FMU.
+     */
     private int _counter = 0;
 
-    public Master(int rank, Intracomm comm) {
+    /**
+     * Default constructor.
+     */
+    public Master(int id, Intracomm comm) {
 
-        _rank = rank;
+        _id = id;
         _comm = comm;
 
-        _localUnits.add("Unit_" + _gen.nextInt());
-        _localUnits.add("Unit_" + _gen.nextInt());
-        _localUnits.add("Unit_" + _gen.nextInt());
+        _localFMUs.add("FMU_" + (_gen.nextInt() % 1000 + 1000));
+        _localFMUs.add("FMU_" + (_gen.nextInt() % 1000 + 1000));
+        _localFMUs.add("FMU_" + (_gen.nextInt() % 1000 + 1000));
 
     }
 
+    /**
+     * Function that introduces itself to all other masters.
+     *
+     * Each local master advertizes its FMU names to the global master.
+     * For each FMU name received by the global masterm an unique identifier is
+     * attributed to the FMU. Once every local master have advertized their FMUs
+     * the global master broadcasts a message that contains the entire mapping
+     * to all local masters.
+     */
     public void introduce() throws MPIException {
 
         System.out.println(
-                String.format("Introduce process %d to everyone.", _rank)
+                String.format("Introduce process %d to everyone.", _id)
                 );
 
         int nb_masters = _comm.getSize();
 
-        if(_rank == 0) {
+        if(_id == GLOBAL_MASTER) {
+
             for(int i = 1; i < nb_masters; ++i) {
+
+                // Retrieves the size of the message and its source
                 Status status = _comm.probe(MPI.ANY_SOURCE, 0);
                 int source = status.getSource();
-
                 int length = status.getCount(MPI.CHAR);
+
+                // Receives the message
                 CharBuffer message = CharBuffer.allocate(length);
                 _comm.recv(message, length, MPI.CHAR, source, 0);
                 System.out.println("Message received from " + source + " : " + message.toString());
-                
-                message = CharBuffer.wrap(getMapping(i, message).toCharArray());
-                _comm.send(message, message.length(), MPI.CHAR, source, 0);
+
+                // For each FMU attribute a new identifier
+                addToFmuMap(source, message);
 
             }
 
+            // Broadcasts the message to all local masters
             CharBuffer message = CharBuffer.wrap(getEntireMapping().toCharArray());    
             System.out.println("Global message sent from global_master : " + message.toString());
+
+            // First broadcasts the size of the message...
             IntBuffer sizeMessage = IntBuffer.allocate(1);
             sizeMessage.put(message.length());
-            _comm.bcast(sizeMessage, 1, MPI.INT, 0);
-            _comm.bcast(message, message.length(), MPI.CHAR, 0);
+            _comm.bcast(sizeMessage, 1, MPI.INT, GLOBAL_MASTER);
+
+            // ... then sends the message
+            _comm.bcast(message, message.length(), MPI.CHAR, GLOBAL_MASTER);
 
         } else {
+
+            // Sends the local FMU names to the Global Master
             CharBuffer message = CharBuffer.wrap(buildUnitMessage().toCharArray());
             System.out.println(message);
-            _comm.send(message, message.length(), MPI.CHAR, 0, 0);
-            
-            Status status = _comm.probe(0, 0);
-            int length = status.getCount(MPI.CHAR);
-            message = CharBuffer.allocate(length);
-            _comm.recv(message, length, MPI.CHAR, 0, 0);
-            System.out.println("Message local received from global_master : " + message.toString());
+            _comm.send(message, message.length(), MPI.CHAR, GLOBAL_MASTER, DEFAULT_TAG);
 
+            // Waits for the global master to send the size of the mapping message 
             IntBuffer sizeMessage = IntBuffer.allocate(1);
             _comm.bcast(sizeMessage, 1, MPI.INT, 0);
-            length = sizeMessage.get(0);
+            int length = sizeMessage.get(0);
             System.out.println("Message global received from global_master : " + sizeMessage.get(0));
+
+            // Then receives the whole mapping
             message = CharBuffer.allocate(length);
             _comm.bcast(message, length, MPI.CHAR, 0);
             System.out.println("Message global received from global_master : " + message.toString());
@@ -98,38 +153,44 @@ public class Master {
 
     }
 
+    /**
+     *
+     */
     public String buildUnitMessage() {
         String message = "";
-        for(String unitName: _localUnits) {
-            message += " " + unitName;
+        for(String fmuName: _localFMUs) {
+            message += " " + fmuName;
         }
         return message;
 
     }
-    
-    public String getMapping(int rank, CharBuffer unitNames) {
-        String message = "";
-        for(String unit: unitNames.toString().split(" ")) {
-            if(unit.equals("")) {
+
+    /**
+     *
+     */
+    public void addToFmuMap(int rank, CharBuffer fmuNames) {
+        for(String name: fmuNames.toString().split(" ")) {
+            if(name.equals("")) {
                 continue;
             }
-            if(_units.containsKey(unit)) {
-                System.out.println("Unit " + unit + " already declared.");
+            if(_fmuMap.containsKey(name)) {
+                System.out.println("FMU " + name + " already declared.");
                 System.exit(-1);
             } else {
                 _counter++;
-                _units.put(unit, new UnitAddress(rank, _counter));
-                message += " " + unit + ":" + _counter;
+                _fmuMap.put(name, new FMUAddress(rank, _counter));
             }
         }
-        return message;
     }
 
+    /**
+     *
+     */
     public String getEntireMapping() {
         String message = "";
-        for(Entry<String, UnitAddress> entry: _units.entrySet()) {
-            UnitAddress address = entry.getValue();
-            message += " " + entry.getKey() + "@" + address.Rank + ":" + address.Tag;
+        for(Entry<String, FMUAddress> entry: _fmuMap.entrySet()) {
+            FMUAddress address = entry.getValue();
+            message += " " + entry.getKey() + "@" + address.masterId + ":" + address.fmuGlobalId;
         }
         return message;
     }
